@@ -37,6 +37,8 @@ classdef Tree
         b0
         theta_shape
         theta_rate
+        a_shape
+        a_rate
     end
     methods
         % Constructor
@@ -47,7 +49,7 @@ classdef Tree
         % beta: prior hyperparameter
         % temp: Inverse temperature of the tree
         function out = Tree(y,X,Leafmin,gamma,beta,...
-                a,a0,b0,theta_shape,theta_rate,temp)
+                a,a0,b0,theta_shape,theta_rate,a_shape,a_rate,temp)
             if(~isempty(a))
                 out.a = a;
             else
@@ -72,6 +74,16 @@ classdef Tree
                 out.theta_rate = theta_rate;
             else
                 error('Must have nonempty "theta_rate"');
+            end
+            if(~isempty(a_shape))
+                out.a_shape = a_shape;
+            else
+                error('Must have nonempty "a_shape"');
+            end
+            if(~isempty(a_rate))
+                out.a_rate = a_rate;
+            else
+                error('Must have nonempty "a_rate"');
             end
             
             % Create root node
@@ -994,7 +1006,7 @@ classdef Tree
             out.Allnodes{nodeind} = node1;
         end
                    
-        % Evaluate the prior on the tree
+        % Evaluate the prior on the tree (and the gamma process value a)
         % Will also return the tree with updated split values
         % obj: tree
         % X: covariate matrix
@@ -1030,6 +1042,8 @@ classdef Tree
                     lprior = lprior + log(1 - obj.gamma/(1 + d)^obj.beta);
                 end                   
             end
+            % Add in prior contribution for gamma process parameter a
+            lprior = lprior + log(gampdf(out.a,out.a_shape,1/out.a_rate));
             out.Prior = lprior;
         end
             

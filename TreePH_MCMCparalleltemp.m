@@ -80,8 +80,12 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
     addParameter(ip,'a',.01);
     addParameter(ip,'a0',1.1);
     addParameter(ip,'b0',.9);
-    addParameter(ip,'theta_shape',1.1);
-    addParameter(ip,'theta_rate',1.2);
+    addParameter(ip,'theta_shape',1);
+    addParameter(ip,'theta_rate',.001);
+    addParameter(ip,'a_shape',1);
+    addParameter(ip,'a_rate',.001);
+    % Tuning Parameters
+    addParameter(ip,'sprop_a',1);
     
    
     parse(ip,y,X,varargin{:});
@@ -107,12 +111,18 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
     b0 = ip.Results.b0;
     theta_shape = ip.Results.theta_shape;
     theta_rate = ip.Results.theta_rate;
-    
+    a_shape = ip.Results.a_shape;
+    a_rate = ip.Results.a_rate;
+    % Tuning Parameters
+    sprop_a = ip.Results.sprop_a;
        
     
     % Validation of values
     if size(y,1) ~= size(X,1)
         error('The dimensions of y and X must agree.')
+    end
+    if ~issorted(y(:,1))
+        error('Y must be sorted in ascending order');
     end
     if mod(nmcmc,1) ~= 0 || nmcmc < 1
         error('nmcmc must be a postiive integer value.')
@@ -162,6 +172,7 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
     allprobs = [p_g_orig,p_p_orig,p_c_orig,p_s_orig];
 
     naccept = 0;
+    cntr_a = 0;
     n_g_accept = 0;
     n_p_accept = 0;
     n_c_accept = 0;
@@ -171,9 +182,11 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
     n_c_total = 0;
     n_s_total = 0;
     
+       
     % Posterior trees
     TREES = cell(nmcmc,1);
     treesize = zeros(nmcmc,1);
+    As = zeros(nmcmc,1);
     LLIKE = zeros(nmcmc,1);
     swapaccepttotal = 0;
     swaptotal = 0;
@@ -203,6 +216,8 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
         error('Must have at least two processes to do parallel tempering.');
     end
     spmd(spmdsize)
+        % Turn off integration warning
+        warning('off','MATLAB:integral:NonFiniteValue');
         if parallelprofile
             mpiprofile on
         end
@@ -220,7 +235,7 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
         % Initialize root tree on each process
         mytemp = temps(myname);
         T = Tree(y,X,leafmin,gamma,beta,...
-            a,a0,b0,theta_shape,theta_rate,mytemp);
+            a,a0,b0,theta_shape,theta_rate,a_shape,a_rate,mytemp);
         if myname == master
             disp('Starting MCMC...')
         end
@@ -270,6 +285,32 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
                     n_s_total = n_s_total + 1;
                 end
             end
+            
+            % Now update "a"
+            astar = normrnd(T.a,sprop_a);
+            if astar > 0
+                Tstar = T;
+                Tstar.a = astar;
+                % Make all nodes need an updated log-likelihood
+                for jj=1:length(Tstar.Allnodes)
+                    Tstar.Allnodes{jj}.Updatellike = 1;
+                end
+                Tstar = llike_termnodes(Tstar,y);
+                [~,Tstar] = prior_eval(Tstar,X);
+                if ~isfinite(Tstar.Lliketree) || ~isfinite(Tstar.Prior)
+                    [Tstar.Lliketree, Tstar.Prior]
+                end
+                lr = Tstar.Lliketree + Tstar.Prior - (T.Lliketree + T.Prior);
+                %[astar,lr]
+                if lr > log(rand)
+                    T = Tstar;
+                    cntr_a = cntr_a + 1;
+                end
+            end
+            if ii > burn
+                As(ii-burn) = T.a;
+            end
+            
             if mod(ii,swapfreq) == 0
                 % Propose a switch of chains and send to all workers
                 if myname == master
@@ -369,11 +410,13 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
             end
             
         end
+        warning('on','MATLAB:integral:NonFiniteValue');
         perc_accept = naccept/(nmcmc + burn);
         move_accepts = [n_g_accept/n_g_total,...
             n_p_accept/n_p_total,...
             n_c_accept/n_c_total,...
             n_s_accept/n_s_total];
+        a_accept = cntr_a/(nmcmc + burn);
         swap_accept = swapaccepttotal/swaptotal;
         if k > 0
             C = unique(sort(LLIKE,'descend'),'rows','stable');
@@ -394,9 +437,9 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
             end
             TREES = Treesub;
         end
-        output = struct('Trees',{TREES},'llike',LLIKE,'acceptance',perc_accept,...
+        output = struct('Trees',{TREES},'llike',LLIKE,'As',As,'acceptance',perc_accept,...
             'treesize',treesize,'move_accepts',move_accepts,...
-            'swap_accept',swap_accept);
+            'swap_accept',swap_accept,'a_accept',a_accept);
         % Save output
         if saveall
             savenames = 1:m;
