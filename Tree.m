@@ -31,8 +31,10 @@ classdef Tree
         Prior % the log of the prior
         Temp % The inverse-temperature of the tree (for parallel tempering)
         Ntermnodes % the number of terminal nodes/leaves       
-        % Hyperparameters
+        % Parameters
         a
+        omega
+        % Hyperparameter
         a0
         b0
         theta_shape
@@ -49,11 +51,16 @@ classdef Tree
         % beta: prior hyperparameter
         % temp: Inverse temperature of the tree
         function out = Tree(y,X,Leafmin,gamma,beta,...
-                a,a0,b0,theta_shape,theta_rate,a_shape,a_rate,temp)
+                a,omega,a0,b0,theta_shape,theta_rate,a_shape,a_rate,temp)
             if(~isempty(a))
                 out.a = a;
             else
                 error('Must have nonempty "a"');
+            end
+            if ~isempty(omega)
+                out.omega = omega;
+            else
+                error('Must have nonempty "omega"');
             end
             if(~isempty(a0))
                 out.a0 = a0;
@@ -98,10 +105,6 @@ classdef Tree
             out.NodeIds = 0;
             out.Smallnodes = 0;
             out.Varnames = X.Properties.VariableNames;
-            
-            % MAKE SURE DATA IS SORTED, OR ELSE!
-            warning('Make sure data is sorted!')
-            
             
             if gamma > 0 && gamma < 1
                 out.gamma = gamma;
@@ -1043,7 +1046,9 @@ classdef Tree
                 end                   
             end
             % Add in prior contribution for gamma process parameter a
-            lprior = lprior + log(gampdf(out.a,out.a_shape,1/out.a_rate));
+            lprior = lprior + log(gampdf(obj.a,obj.a_shape,1/obj.a_rate));
+            % Add in prior contribution for gamam process, omega;
+            lprior = lprior + log(gampdf(obj.omega,obj.a0,1/obj.b0));
             out.Prior = lprior;
         end
             

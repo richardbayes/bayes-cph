@@ -7,8 +7,8 @@ n = 100;
 x = rand(n,1);
 ind = x < .5;
 y = zeros(n,1);
-y(ind) = gamrnd(1,2,sum(ind),1);
-y(~ind) = gamrnd(1,1,sum(~ind),1);
+y(ind) = gamrnd(1,1/10,sum(ind),1);
+y(~ind) = gamrnd(1,1/1,sum(~ind),1);
 % Do some censoring
 % cens = gamrnd(1,1,n,1);
 cens = 1000 * ones(n,1);
@@ -25,24 +25,26 @@ X = X(I,:);
 Y = [y, ds];
 
 parpool(8);
-TreePH_MCMCparalleltemp(Y,X,'nmcmc',2000,'burn',2000,...
-    'filepath','../output/sim1/','seed',1,'saveall',1);
+TreePH_MCMCparalleltemp(Y,X,'nmcmc',1000,'burn',1000,...
+    'filepath','../output/sim1/','seed',1,'saveall',1,...
+    'sprop_a',10,'sprop_omega',10);
 
-load('../output/trashme/mcmc_id1.mat')
+load('../output/sim1/mcmc_id1.mat')
 plot(output.llike)
 [~,I] = max(output.llike);
 thetree = output.Trees{I};
 Treeplot(thetree)
 
 plot(output.As)
-            
+plot(output.Omegas)
+plot(output.As,output.Omegas,'o')    
 
 
 % Get posterior of the survival function...
 % Suppose we know omega, a,theta, and the true partition...
-omega = 1.1;
+omega = thetree.omega;
 a = thetree.a;
-thetas = [2,1];
+thetas = [2.5,.25];
 prt = double(X{:,1} > .5) + 1; % The final partition
 nsamp = 10; % number of Monte Carlo samples at each tt
 
@@ -97,21 +99,25 @@ for ii=1:length(tt)
     GAM(:,ii) = thegam + U + delta;
 end
     
-plot(tt,mean(exp(-GAM*2)))
+ii = 2;
+plot(tt,mean(exp(-GAM*thetas(ii))))
 hold on
-plot(tt,min(exp(-GAM*2)))
-plot(tt,max(exp(-GAM*2)))
-fplot(@(x) exp(-2*x),[0,2])
+plot(tt,min(exp(-GAM*thetas(ii))))
+plot(tt,max(exp(-GAM*thetas(ii))))
+fplot(@(x) exp(-x*1),[0,2])
 hold off
 
-ypart = Y(Y(:,1) < .5,:);
-fplot(@(x) ptheta_t(x,ypart,thetree.a,thetree.a0,thetree.b0,thetree.theta_shape,thetree.theta_rate,0),[0,5])
-ypart = Y(Y(:,1) >= .5,:);
-fplot(@(x) ptheta_t(x,ypart,thetree.a,thetree.a0,thetree.b0,thetree.theta_shape,thetree.theta_rate,0),[0,5])
+ypart = Y(X{:,1} < .5,:);
+fplot(@(x) ptheta_t(x,ypart,thetree.a,thetree.omega,thetree.theta_shape,thetree.theta_rate,0),[0,15])
+ypart = Y(X{:,1} >= .5,:);
+fplot(@(x) ptheta_t(x,ypart,thetree.a,thetree.omega,thetree.theta_shape,thetree.theta_rate,0),[0,5])
 
 thetapart = @(x) ptheta_t(x,ypart,thetree.a,thetree.a0,thetree.b0,thetree.theta_shape,thetree.theta_rate,0);
 thing = slicesample(1,10000,'pdf',thetapart);
 histogram(thing)
+
+
+
 
 
 

@@ -71,21 +71,25 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
     addParameter(ip,'p',.75)
     addParameter(ip,'parallelprofile',0);
     addParameter(ip,'hottemp',.1)
+    addParameter(ip,'nprint',100);
     addParameter(ip,'saveall',0);
     addParameter(ip,'swapfreq',1);
     addParameter(ip,'seed','shuffle');
     addParameter(ip,'suppress_errors_on_workers',0);
     addParameter(ip,'filepath','./output/')
-    % hyperparameters
+    % Parameters
     addParameter(ip,'a',.01);
-    addParameter(ip,'a0',1.1);
-    addParameter(ip,'b0',.9);
+    addParameter(ip,'omega',1);
+    % Hyperparameters
+    addParameter(ip,'a0',1);
+    addParameter(ip,'b0',.001);
     addParameter(ip,'theta_shape',1);
     addParameter(ip,'theta_rate',.001);
     addParameter(ip,'a_shape',1);
     addParameter(ip,'a_rate',.001);
     % Tuning Parameters
     addParameter(ip,'sprop_a',1);
+    addParameter(ip,'sprop_omega',1);
     
    
     parse(ip,y,X,varargin{:});
@@ -100,13 +104,16 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
     p = ip.Results.p;
     parallelprofile = ip.Results.parallelprofile;
     hottemp = ip.Results.hottemp;
+    nprint = ip.Results.nprint;
     saveall = ip.Results.saveall;
     seed = ip.Results.seed;
     swapfreq = ip.Results.swapfreq;
     suppress_errors_on_workers = ip.Results.suppress_errors_on_workers;
     filepath = ip.Results.filepath;
-    %hyperparameters
-    a = ip.Results.a;
+    % parameters
+    a =ip.Results.a;
+    omega = ip.Results.omega;
+    % hyperparameters
     a0 = ip.Results.a0;
     b0 = ip.Results.b0;
     theta_shape = ip.Results.theta_shape;
@@ -115,7 +122,7 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
     a_rate = ip.Results.a_rate;
     % Tuning Parameters
     sprop_a = ip.Results.sprop_a;
-       
+    sprop_omega=ip.Results.sprop_omega;       
     
     % Validation of values
     if size(y,1) ~= size(X,1)
@@ -173,6 +180,7 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
 
     naccept = 0;
     cntr_a = 0;
+    cntr_omega = 0;
     n_g_accept = 0;
     n_p_accept = 0;
     n_c_accept = 0;
@@ -187,6 +195,7 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
     TREES = cell(nmcmc,1);
     treesize = zeros(nmcmc,1);
     As = zeros(nmcmc,1);
+    Omegas= zeros(nmcmc,1);
     LLIKE = zeros(nmcmc,1);
     swapaccepttotal = 0;
     swaptotal = 0;
@@ -235,7 +244,7 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
         % Initialize root tree on each process
         mytemp = temps(myname);
         T = Tree(y,X,leafmin,gamma,beta,...
-            a,a0,b0,theta_shape,theta_rate,a_shape,a_rate,mytemp);
+            a,omega,a0,b0,theta_shape,theta_rate,a_shape,a_rate,mytemp);
         if myname == master
             disp('Starting MCMC...')
         end
@@ -307,10 +316,30 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
                     cntr_a = cntr_a + 1;
                 end
             end
-            if ii > burn
-                As(ii-burn) = T.a;
+            
+            % Now update omega
+            omegastar = normrnd(T.omega,sprop_omega);
+            if omegastar > 0
+                Tstar = T;
+                Tstar.omega = omegastar;
+                % Make all nodes need an updated log-likelihood
+                for jj=1:length(Tstar.Allnodes)
+                    Tstar.Allnodes{jj}.Updatellike = 1;
+                end
+                Tstar = llike_termnodes(Tstar,y);
+                [~,Tstar] = prior_eval(Tstar,X);
+                if ~isfinite(Tstar.Lliketree) || ~isfinite(Tstar.Prior)
+                    [Tstar.Lliketree, Tstar.Prior]
+                end
+                lr = Tstar.Lliketree + Tstar.Prior - (T.Lliketree + T.Prior);
+                %[astar,lr]
+                if lr > log(rand)
+                    T = Tstar;
+                    cntr_omega = cntr_omega + 1;
+                end
             end
             
+                       
             if mod(ii,swapfreq) == 0
                 % Propose a switch of chains and send to all workers
                 if myname == master
@@ -390,7 +419,7 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
             end
 
             %if myname == master % Print progress
-                if mod(ii,100) == 0
+                if mod(ii,nprint) == 0
                     disp(['i = ',num2str(ii),', ID = ',num2str(myname),', llike = ',num2str(T.Lliketree),...
                         ', accept = ',num2str(naccept/ii),...
                         ', swapaccept = ',num2str(swapaccepttotal),'/',num2str(swaptotal),...
@@ -407,6 +436,8 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
                 TREES{ii - burn} = thin_tree(T);
                 treesize(ii - burn) = T.Ntermnodes;
                 LLIKE(ii - burn) = T.Lliketree;
+                As(ii-burn) = T.a;
+                Omegas(ii-burn) = T.omega;
             end
             
         end
@@ -417,6 +448,7 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
             n_c_accept/n_c_total,...
             n_s_accept/n_s_total];
         a_accept = cntr_a/(nmcmc + burn);
+        omega_accept = cntr_omega/(nmcmc+ burn);
         swap_accept = swapaccepttotal/swaptotal;
         if k > 0
             C = unique(sort(LLIKE,'descend'),'rows','stable');
@@ -437,9 +469,11 @@ function TreePH_MCMCparalleltemp(y,X,varargin)
             end
             TREES = Treesub;
         end
-        output = struct('Trees',{TREES},'llike',LLIKE,'As',As,'acceptance',perc_accept,...
+        output = struct('Trees',{TREES},'llike',LLIKE,'As',As,'Omegas',Omegas,...
+            'acceptance',perc_accept,...
             'treesize',treesize,'move_accepts',move_accepts,...
-            'swap_accept',swap_accept,'a_accept',a_accept);
+            'swap_accept',swap_accept,'a_accept',a_accept,...
+            'omega_accept',omega_accept);
         % Save output
         if saveall
             savenames = 1:m;

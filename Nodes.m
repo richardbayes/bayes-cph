@@ -134,9 +134,8 @@ classdef Nodes
             aa = thetree.theta_shape;
             bb = thetree.theta_rate;
             a = thetree.a;
-            a0 = thetree.a0;
-            b0 = thetree.b0;
-            [theint,C] = mt(ypart,a,a0,b0,aa,bb);
+            omega = thetree.omega;
+            [theint,C] = mt(ypart,a,omega,aa,bb);
             out.Llike = log(theint) + C;
         end
         
