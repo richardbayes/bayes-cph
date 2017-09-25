@@ -44,9 +44,9 @@ plot(output.As,output.Omegas,'o')
 % Suppose we know omega, a,theta, and the true partition...
 omega = thetree.omega;
 a = thetree.a;
-thetas = [2.5,.25];
+thetas = [2.85,.2802];
 prt = double(X{:,1} > .5) + 1; % The final partition
-nsamp = 10; % number of Monte Carlo samples at each tt
+nsamp = 10000; % number of Monte Carlo samples at each tt
 
 A = zeros(size(Y,1),1);
 for jj=1:size(Y,1)
@@ -82,7 +82,8 @@ for ii=1:length(tt)
         end
         thegam = thegam + gamrnd(a*omega*thediff,1/(a + A(jj)),nsamp,1);
         if Y(jj,2) % only do for non-censored observations
-            U = U + slicesampler(nsamp,a + A(jj),a + A(jj+1),.5,10);
+            %U = U + slicesampler(nsamp,a + A(jj),a + A(jj+1),.5,10);
+            U = U + rejectsamp(nsamp,a + A(jj),a + A(jj+1));
             %U = U + slicesample(.5,nsamp,'pdf',@(x) fu(x,a + A(jj),a + A(jj+1),0));
         end
         jj = jj + 1;
@@ -99,13 +100,34 @@ for ii=1:length(tt)
     GAM(:,ii) = thegam + U + delta;
 end
     
+
+[GAM,grid,thetas] = plot_surv(Y,X,thetree,10,50,[],[],[],100);
+
 ii = 2;
-plot(tt,mean(exp(-GAM*thetas(ii))))
+cumhaz = squeeze(GAM(ii,:,:));
+plot(grid,mean(exp(-cumhaz)))
 hold on
-plot(tt,min(exp(-GAM*thetas(ii))))
-plot(tt,max(exp(-GAM*thetas(ii))))
+plot(grid,min(exp(-cumhaz)))
+plot(grid,max(exp(-cumhaz)))
+fplot(@(x) exp(-x*10),[0,2])
+hold off
+
+
+ii = 2;
+cumhaz = GAM;
+plot(tt,mean(exp(-cumhaz*thetas(ii))))
+hold on
+plot(tt,min(exp(-cumhaz*thetas(ii))))
+plot(tt,max(exp(-cumhaz*thetas(ii))))
 fplot(@(x) exp(-x*1),[0,2])
 hold off
+
+
+
+
+
+
+
 
 ypart = Y(X{:,1} < .5,:);
 fplot(@(x) ptheta_t(x,ypart,thetree.a,thetree.omega,thetree.theta_shape,thetree.theta_rate,0),[0,15])
